@@ -1,0 +1,404 @@
+================================================================================
+          DAY 06: LANGGRAPH — STATEFUL, DURABLE, HUMAN-IN-THE-LOOP GRAPHS
+                              SYSTEM ARCHITECTURE
+================================================================================
+
+Scope: Typed State with Reducers, Conditional Edges, Cycles, Subgraphs,
+       Map-Reduce Fan-Out (Send API), Durable Checkpointing (MemorySaver),
+       Human-in-the-Loop Interrupts, Time-Travel Debugging, Streaming,
+       Resume-After-Crash, Cost Budget Enforcement, Multi-Agent Supervision.
+
+================================================================================
+1. DEEP BUILD A — CORE WORKFLOW GRAPH TOPOLOGY
+================================================================================
+
+                                 USER INPUT
+                              { task, maxBudget }
+                                     │
+                                     ▼
+                              ┌─────────────┐
+                              │    START     │
+                              └──────┬──────┘
+                                     │
+                                     ▼
+                          ┌────────────────────┐
+                          │     plannerNode     │
+                          │ • Generates plan    │
+                          │ • Sets status =     │
+                          │   "awaiting_        │
+                          │    approval"        │
+                          │ • Cost: +$0.05      │
+                          └─────────┬──────────┘
+                                    │
+                                    ▼
+                     ┌──────────────────────────────┐
+                     │     humanApprovalNode         │
+                     │  ┌──────────────────────┐     │
+                     │  │    interrupt()        │     │
+                     │  │ Pauses graph.         │     │
+                     │  │ Returns payload to    │     │
+                     │  │ caller. Waits for     │     │
+                     │  │ Command({ resume }).  │     │
+                     │  └──────────────────────┘     │
+                     └──────────────┬────────────────┘
+                                    │
+                           ┌────────┴────────┐
+                           │  [status?]      │
+                   ┌───────┴───────┐  ┌──────┴──────┐
+                   │  "approved"   │  │  "rejected" │
+                   └───────┬───────┘  └──────┬──────┘
+                           │                 │
+                           ▼                 ▼
+                  ┌─────────────────┐    ┌───────┐
+                  │  costGuardNode  │    │  END  │
+                  │ • Check budget  │    └───────┘
+                  │ • Pass/Fail     │
+                  └────────┬────────┘
+                           │
+                  ┌────────┴────────┐
+                  │  [over_budget?] │
+           ┌──────┴──────┐  ┌──────┴──────┐
+           │  "worker"   │  │    END      │
+           └──────┬──────┘  └─────────────┘
+                  │
+                  ▼
+         ┌──────────────────┐
+         │    workerNode     │
+         │ • Produces result │
+         │ • Cost: +$0.10    │
+         └────────┬─────────┘
+                  │
+                  ▼
+        ┌───────────────────┐
+        │   reviewerNode    │
+        │ • Evaluates output│
+        │ • Cost: +$0.03    │
+        └─────────┬─────────┘
+                  │
+         ┌────────┴────────┐
+         │ [review result] │
+    ┌────┴────┐   ┌────────┴──────┐   ┌──────────────┐
+    │ "pass"  │   │ "revise"      │   │ retries >= 3 │
+    └────┬────┘   │ (retries < 3) │   │ → "finalizer"│
+         │        └───────┬───────┘   └──────┬───────┘
+         │                │                  │
+         │                ▼                  │
+         │       ┌─────────────────┐         │
+         │       │  costGuardNode  │◄────────┘
+         │       │  (cycle back)   │
+         │       └────────┬────────┘
+         │                │
+         │                ▼
+         │        ┌──────────────┐
+         │        │  workerNode  │ (retry attempt)
+         │        │  (cycle)     │
+         │        └──────┬───────┘
+         │               │
+         │               ▼
+         │       ┌──────────────┐
+         │       │ reviewerNode │ (re-evaluate)
+         │       └──────┬───────┘
+         │              │
+         ▼              ▼
+    ┌───────────────────────┐
+    │    finalizerNode      │
+    │ • Produces final      │
+    │   output              │
+    │ • Cost: +$0.01        │
+    └───────────┬───────────┘
+                │
+                ▼
+           ┌─────────┐
+           │   END   │
+           └─────────┘
+
+
+================================================================================
+2. DEEP BUILD B — MULTI-AGENT SUPERVISOR GRAPH TOPOLOGY
+================================================================================
+
+                                 USER INPUT
+                              { task, maxBudget }
+                                     │
+                                     ▼
+                              ┌─────────────┐
+                              │    START     │
+                              └──────┬──────┘
+                                     │
+                                     ▼
+                        ┌──────────────────────┐
+                        │   supervisorNode     │
+                        │ • Decomposes task     │
+                        │ • Creates plan        │
+                        │ • Cost: +$0.03        │
+                        └──────────┬───────────┘
+                                   │
+                                   ▼
+                      ┌──────────────────────────┐
+                      │   humanApprovalNode       │
+                      │   interrupt() — pause     │
+                      └──────────┬───────────────┘
+                                 │
+                        ┌────────┴────────┐
+                        │  [approved?]    │
+                 ┌──────┴──────┐   ┌──────┴──────┐
+                 │  approved   │   │  rejected   │
+                 └──────┬──────┘   └──────┬──────┘
+                        │                 ▼
+                        │            ┌─────────┐
+                        │            │   END   │
+                        ▼            └─────────┘
+               ┌─────────────────┐
+               │  costGuardNode  │
+               └────────┬────────┘
+                        │
+               ┌────────┴─────────┐
+               │  [first run?]    │
+        ┌──────┴──────┐    ┌──────┴──────┐
+        │  Fan-Out    │    │  Retry      │
+        │  (no results│    │  (has       │
+        │   yet)      │    │   results)  │
+        └──────┬──────┘    └──────┬──────┘
+               │                  │
+               ▼                  ▼
+        ┌─────────────┐    ┌─────────────┐
+        │  fanOutNode  │    │  workerNode │
+        └──────┬──────┘    │  (retry)    │
+               │           └──────┬──────┘
+               ▼                  │
+  ┌─── Send("mapWorker") ───┐    │
+  │            │             │    │
+  ▼            ▼             ▼    │
+┌──────┐  ┌──────┐    ┌──────┐   │
+│ map  │  │ map  │    │ map  │   │
+│Worker│  │Worker│    │Worker│   │
+│  1   │  │  2   │    │  3   │   │
+└──┬───┘  └──┬───┘    └──┬───┘   │
+   │         │           │       │
+   └─────────┼───────────┘       │
+             │ (append reducer   │
+             │  fan-in)          │
+             ▼                   │
+      ┌──────────────┐           │
+      │ aggregator   │           │
+      │ Node         │           │
+      └──────┬───────┘           │
+             │                   │
+             └───────┬───────────┘
+                     │
+                     ▼
+            ┌──────────────┐
+            │ reviewerNode │
+            └──────┬───────┘
+                   │
+          ┌────────┴────────┐
+          │  [review]       │
+     ┌────┴────┐    ┌───────┴──────┐
+     │ "pass"  │    │  "revise"    │
+     └────┬────┘    │ (→ costGuard │
+          │         │  → worker    │
+          ▼         │  → reviewer) │
+   ┌──────────────┐ └──────────────┘
+   │ finalizerNode│
+   └──────┬───────┘
+          │
+          ▼
+     ┌─────────┐
+     │   END   │
+     └─────────┘
+
+
+================================================================================
+3. STATE SCHEMA AND REDUCER SEMANTICS
+================================================================================
+
+┌────────────────┬──────────┬──────────────────────────────────────────────────┐
+│ Field          │ Reducer  │ Semantics                                        │
+├────────────────┼──────────┼──────────────────────────────────────────────────┤
+│ task           │ LWW      │ Last-write-wins. The current task description.   │
+│ plan           │ LWW      │ Last-write-wins. The execution plan.             │
+│ status         │ LWW      │ Last-write-wins. Workflow status enum.           │
+│ result         │ LWW      │ Last-write-wins. Final output.                  │
+│ approvedBy     │ LWW      │ Last-write-wins. Human approver name.           │
+│ feedback       │ LWW      │ Last-write-wins. Latest reviewer feedback.      │
+│ error          │ LWW      │ Last-write-wins. Error description.             │
+│ maxBudget      │ LWW      │ Last-write-wins. Cost ceiling.                  │
+│ retryCount     │ Additive │ (a, b) => a + b. Accumulates retry deltas.      │
+│ totalCost      │ Additive │ (a, b) => a + b. Accumulates cost from nodes.   │
+│ workerResults  │ Append   │ [...a, ...b]. Fan-in from parallel workers.     │
+│ messages       │ Append   │ [...a, ...b]. Append-only audit log.            │
+└────────────────┴──────────┴──────────────────────────────────────────────────┘
+
+LWW = Last-Write-Wins: (_, newVal) => newVal
+Additive = Sum: (current, delta) => current + delta
+Append = Concat: (current, update) => [...current, ...update]
+
+
+================================================================================
+4. CHECKPOINT LIFECYCLE
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                    CHECKPOINT LIFECYCLE                             │
+  ├─────────────────────────────────────────────────────────────────────┤
+  │                                                                     │
+  │  1. INIT     Thread created → default state saved as checkpoint #0 │
+  │                                                                     │
+  │  2. NODE     Node executes → partial update returned                │
+  │                                                                     │
+  │  3. MERGE    Reducers merge partial into full state                 │
+  │                                                                     │
+  │  4. SAVE     New checkpoint saved (state + next node + metadata)    │
+  │                                                                     │
+  │  5. NEXT     Follow edge to next node → goto step 2                │
+  │                                                                     │
+  │  6. INTERRUPT (optional)                                            │
+  │     interrupt() called → checkpoint saved with interrupt state      │
+  │     → invoke() returns to caller → wait for Command({ resume })    │
+  │     → resume: reload checkpoint, interrupt() returns resume value   │
+  │     → continue from step 2                                          │
+  │                                                                     │
+  │  7. END      No next node → final checkpoint saved → return result  │
+  │                                                                     │
+  │  CRASH:      If process dies between steps 2-3, node re-executes    │
+  │              If process dies between steps 4-5, resumes at step 5   │
+  │              Completed work is NEVER repeated.                      │
+  │                                                                     │
+  └─────────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+5. INTERRUPT / RESUME FLOW
+================================================================================
+
+  Caller                          Graph                      Checkpointer
+    │                               │                              │
+    │── invoke(input, config) ─────>│                              │
+    │                               │── load checkpoint ──────────>│
+    │                               │<── checkpoint (or empty) ────│
+    │                               │                              │
+    │                               │── run planner ──────────────>│
+    │                               │── save checkpoint ──────────>│
+    │                               │                              │
+    │                               │── run humanApproval ────────>│
+    │                               │   │                          │
+    │                               │   │── interrupt({...}) ─────>│
+    │                               │   │   (saves state + pauses) │
+    │                               │                              │
+    │<── return (interrupt payload)──│                              │
+    │                               │                              │
+    │   ... human reviews plan ...  │                              │
+    │                               │                              │
+    │── invoke(Command({resume:     │                              │
+    │     "approve"}), config) ────>│                              │
+    │                               │── load checkpoint ──────────>│
+    │                               │<── checkpoint (interrupted) ─│
+    │                               │                              │
+    │                               │── resume humanApproval ─────>│
+    │                               │   interrupt() returns        │
+    │                               │   "approve"                  │
+    │                               │── save checkpoint ──────────>│
+    │                               │                              │
+    │                               │── run costGuard ────────────>│
+    │                               │── run worker ───────────────>│
+    │                               │── run reviewer ─────────────>│
+    │                               │── ... (until END) ──────────>│
+    │                               │                              │
+    │<── return (final state) ──────│                              │
+
+
+================================================================================
+6. MAP-REDUCE FAN-OUT / FAN-IN TOPOLOGY
+================================================================================
+
+                    ┌────────────────────┐
+                    │     fanOutNode     │
+                    │  (pass-through)    │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────┴──────────┐
+                    │ routeToMapWorkers() │
+                    │ Returns Send[]     │
+                    └─────┬───┬───┬──────┘
+                          │   │   │
+               ┌──────────┘   │   └──────────┐
+               ▼              ▼              ▼
+        ┌────────────┐ ┌────────────┐ ┌────────────┐
+        │ mapWorker  │ │ mapWorker  │ │ mapWorker  │
+        │ (task 1)   │ │ (task 2)   │ │ (task 3)   │
+        │            │ │            │ │            │
+        │ Returns:   │ │ Returns:   │ │ Returns:   │
+        │ {worker-   │ │ {worker-   │ │ {worker-   │
+        │  Results:  │ │  Results:  │ │  Results:  │
+        │  ["r1"]}   │ │  ["r2"]}   │ │  ["r3"]}   │
+        └─────┬──────┘ └─────┬──────┘ └─────┬──────┘
+              │              │              │
+              └──────────────┼──────────────┘
+                             │
+                    ┌────────┴─────────┐
+                    │  Append Reducer   │
+                    │  workerResults:   │
+                    │  ["r1","r2","r3"] │
+                    └────────┬─────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │  aggregatorNode  │
+                    │  Reads all       │
+                    │  workerResults   │
+                    └─────────────────┘
+
+
+================================================================================
+7. RETRY CYCLE GUARD MECHANICS
+================================================================================
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    RETRY CYCLE FLOW                             │
+  │                                                                 │
+  │  Attempt 1:  worker → reviewer → "revise" → retryCount += 1    │
+  │              → costGuard → worker (retry)                       │
+  │                                                                 │
+  │  Attempt 2:  worker → reviewer → "revise" → retryCount += 1    │
+  │              → costGuard → worker (retry)                       │
+  │                                                                 │
+  │  Attempt 3:  worker → reviewer → "pass" → finalizer → END      │
+  │              OR: retryCount >= 3 → finalizer → END (exhausted)  │
+  │                                                                 │
+  │  Safety nets:                                                    │
+  │  • retryCount >= MAX_RETRIES (3) → forced termination           │
+  │  • costGuard → totalCost > maxBudget → forced termination       │
+  │  • recursionLimit (compile option) → GraphRecursionError        │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+================================================================================
+8. CODING CHALLENGE: CRASH RECOVERY SEQUENCE
+================================================================================
+
+  Phase 1: Fresh Start
+    invoke(input) → planner → humanApproval → INTERRUPT (pauses)
+    State saved: { plan: "...", status: "awaiting_approval" }
+
+  Phase 2: Resume with Approval
+    invoke(Command({ resume: "approve" })) →
+      humanApproval resumes → costGuard → worker →
+      ⚡ CRASH (simulated throw in worker on attempt 2) ⚡
+    State saved up to last successful checkpoint
+
+  Phase 3: Resume After Crash
+    NEW graph instance (same checkpointer, same thread_id)
+    invoke(null, config) →
+      Loads last checkpoint → resumes at the correct next node →
+      reviewer → (retry if needed) → finalizer → END
+
+  Proof:
+    ✓ Interrupt paused graph at humanApproval
+    ✓ Resume with Command continued execution
+    ✓ Crash did not lose completed work
+    ✓ New graph instance resumed from correct checkpoint
+    ✓ Retry cycle bounded and terminated
+    ✓ Final state is "completed"
+
+================================================================================

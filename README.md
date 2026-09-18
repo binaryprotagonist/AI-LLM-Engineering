@@ -120,12 +120,38 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 
 ---
 
+### 06 — LangGraph: Stateful, Durable, Human-in-the-Loop Graphs
+
+> **Goal:** Model complex agent control flow as durable graphs with persistence, interrupts, and time-travel — production-grade.
+
+**Topics covered:**
+- LangGraph core model: StateGraph, nodes, edges, compilation
+- Typed state with Annotation API & reducers (append, additive, last-write-wins)
+- Conditional edges & dynamic routing
+- Cycles, loops & recursion limits
+- Subgraphs & nested composition
+- Map-reduce fan-out with Send API & fan-in via reducers
+- Checkpointers & durable execution (MemorySaver, thread persistence)
+- Time-travel: state history, fork from past checkpoint, replay
+- Human-in-the-loop: interrupt(), Command({ resume }), approval gates
+- Streaming state updates & token streaming
+- Resume-after-crash & fault tolerance
+- Testing cyclic graphs deterministically (checkpoint replay)
+- State reducers deep dive (parallel safety, composition)
+- Error handling & retry patterns
+- Multi-agent graph architecture (supervisor-as-router, agent-as-node)
+- Cost budget enforcement & guard nodes
+
+**Challenge:** Built a LangGraph workflow with a human-approval interrupt and a retry cycle that survives a simulated process kill mid-run and resumes from the last checkpoint to the correct next node — proven with a test that asserts interrupt, resume, crash recovery, and bounded retries.
+
+---
+
 ## Tech Stack
 
 - **Language:** TypeScript (ESM)
 - **Runtime:** Node.js + tsx
 - **Validation:** Zod
-- **LLM SDKs:** `@langchain/core`, `@langchain/openai`
+- **LLM SDKs:** `@langchain/core`, `@langchain/openai`, `@langchain/langgraph`
 - **Testing:** Custom eval suites per module
 
 ## Getting Started
