@@ -8,7 +8,7 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 
 ### 01 — LLM Systems: Reliability, Cost & Evaluation
 
-> Building a production-grade LLM gateway from the ground up.
+> **Goal:** Turn raw model access into a reliable, observable, cost-bounded LLM layer with an automated eval loop.
 
 **Topics covered:**
 - Provider abstraction (OpenAI, Gemini, Anthropic adapters)
@@ -19,15 +19,16 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 - Exact-match caching (SHA-256 keyed, TTL)
 - Circuit breaker & provider fallback routing
 - Tool / function calling
-- Observability & metrics collection
-- Evaluation suite & CI regression testing
-- **Challenge:** 500-call reliability benchmark against a chaotic provider
+- Observability & metrics collection (tracing latency, tokens, cost, cache hits)
+- Evaluation suite & CI regression testing (exact match, JSON-schema, LLM-as-judge)
+
+**Challenge:** A flaky provider stub randomly 429s, times out, and returns malformed JSON. Built a client that guarantees schema-valid responses within a bounded latency/cost budget — verified with 500 simulated calls asserting success rate, p99 latency, and total cost stay within thresholds.
 
 ---
 
 ### 02 — Agent Internals: Reliability, Memory & Control
 
-> Building a controllable, resumable agent runtime with memory and evaluation.
+> **Goal:** Build a controllable, resumable agent runtime with real memory and hard reliability guarantees — no framework.
 
 **Topics covered:**
 - Agent state machine (IDLE → RUNNING → WAITING_TOOL → COMPLETED / FAILED)
@@ -41,13 +42,14 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 - Vector-backed long-term memory (cosine similarity)
 - Evaluation: task success, tool precision/recall/F1, trajectory scoring
 - Reflection & self-critique engine
-- **Challenge:** 6-step resumable agent
+
+**Challenge:** A 6-step task where step 4's tool intermittently fails. The agent retries intelligently, never exceeds its step/token budget, checkpoints after every step, and resumes correctly if killed mid-task — proven with a restart test.
 
 ---
 
 ### 03 — Advanced RAG: Retrieval Quality at Scale
 
-> High-precision retrieval with hybrid search, re-ranking, and hardening.
+> **Goal:** Move from naive RAG to a measured, high-precision retrieval system with hybrid search, re-ranking, query transformation, and a retrieval eval.
 
 **Topics covered:**
 - Naive top-K & retrieval failure modes
@@ -63,13 +65,14 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 - LLM-as-judge & RAGAS-style evaluation
 - Context stuffing & "lost in the middle" problem
 - Data freshness, invalidation & staleness
-- **Challenge:** Hybrid retrieval + re-ranking + eval pipeline
+
+**Challenge:** Given a query set where naive top-K scores poorly, implemented hybrid search + re-ranking and demonstrated a measurable lift in Recall@K and MRR on a held-out labeled set — improvement shown by numbers, not vibes.
 
 ---
 
 ### 04 — Multi-Agent Orchestration at Production Quality
 
-> Supervisor/router topology with parallel execution, shared state, and fault tolerance.
+> **Goal:** Design multi-agent systems that actually beat a single agent — with routing, parallelism, shared state, and human-in-the-loop — and prove it.
 
 **Topics covered:**
 - When multi-agent beats single-agent (taxonomy)
@@ -87,13 +90,14 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 - Testing concurrency with stress harnesses
 - Single-agent vs multi-agent quality/latency/cost evaluation
 - Production observability, tracing & audit logs
-- **Challenge:** Fault-tolerant supervisor orchestrator
+
+**Challenge:** Supervisor + 3 parallel workers aggregating results under a global cost/time budget, where one worker fails. The system degrades gracefully (partial result + flag), never hangs or crashes, and stays within budget — proven with tests.
 
 ---
 
 ### 05 — LangChain In Depth (and Its Limits)
 
-> Deep dive into LCEL internals, then benchmarking LangChain vs raw code.
+> **Goal:** Use LangChain where it earns its keep, know exactly what its abstractions do, and know when to drop to raw code.
 
 **Topics covered:**
 - LCEL execution engine & Runnable protocol
@@ -111,7 +115,8 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 - When LangChain helps vs when to rip it out (decision matrix)
 - Retrieval chain with re-ranker & source citations
 - Cost, latency & memory benchmarking: raw TypeScript vs LCEL
-- **Challenge:** Streaming RAG with fallbacks & eval
+
+**Challenge:** Re-implemented the Day 03 hybrid RAG as a streaming LangChain chain with a fallback model and LangSmith tracing, then verified retrieval metrics match the raw version within tolerance and reported the latency/cost delta.
 
 ---
 
