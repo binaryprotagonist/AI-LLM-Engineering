@@ -146,13 +146,36 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 
 ---
 
+### 07 — MCP: Building Secure, Production Servers
+
+> **Goal:** Build hardened MCP servers exposing real systems, and integrate them into your agents with proper auth and safety.
+
+**Topics covered:**
+- MCP architecture in depth: tools, resources, prompts; transports; capability negotiation
+- Production SQLite engine via native `node:sqlite` (`DatabaseSync`)
+- Multi-layer input validation & strict schema enforcement (Zod)
+- SQL injection defense: AST analysis, comment masking rejection, stacked query prevention
+- Authentication & Role-Based Access Control (RBAC) with least-privilege tool scopes
+- Sliding window rate limiting & backpressure telemetry
+- Append-only, tamper-evident cryptographic audit logs (SHA-256 hash chains)
+- MCP vs bespoke tool integration trade-offs
+- LangGraph agent client integration & graceful tool error recovery
+- Threat-modeling trust boundaries: prompt-injection-driven tool abuse containment
+- Model-independent contract testing for MCP tools and resources
+
+**Challenge:** Built an MCP server exposing a SQL database with read scopes only, that rejects injection and out-of-scope requests, rate-limits, and audit-logs every call — then had a LangGraph agent use it and proved safety guarantees with adversarial and contract tests.
+
+---
+
 ## Tech Stack
 
 - **Language:** TypeScript (ESM)
-- **Runtime:** Node.js + tsx
+- **Runtime:** Node.js (v22+) + tsx
+- **Database:** Native `node:sqlite` (`DatabaseSync`)
+- **Protocol:** `@modelcontextprotocol/sdk` (Model Context Protocol)
 - **Validation:** Zod
 - **LLM SDKs:** `@langchain/core`, `@langchain/openai`, `@langchain/langgraph`
-- **Testing:** Custom eval suites per module
+- **Testing:** Custom contract & adversarial test suites per module
 
 ## Getting Started
 

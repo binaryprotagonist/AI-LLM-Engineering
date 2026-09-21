@@ -1,0 +1,198 @@
+================================================================================
+          DAY 07: MCP — BUILDING SECURE, PRODUCTION SERVERS
+                           SYSTEM ARCHITECTURE
+================================================================================
+
+Scope: Model Context Protocol (MCP) Server Architecture, Transports (In-Memory,
+       Stdio), Capability Negotiation, Multi-Layer Security Pipeline, AuthN/Z,
+       Role-Based Access Control (RBAC), Least-Privilege Tool Scoping,
+       Sliding-Window Rate Limiting, SQL Lexical & AST Security Validation,
+       Cryptographic SHA-256 Audit Trail, LangGraph Agent Client Integration,
+       Threat-Modeling Trust Boundaries, Prompt Injection Containment.
+
+================================================================================
+1. END-TO-END MCP SYSTEM ARCHITECTURE & TRUST BOUNDARY
+================================================================================
+
+                           UNTRUSTED ZONE
+       ┌─────────────────────────────────────────────────────┐
+       │                 USER / LLM CLIENT                   │
+       │  • Generates queries & tool calls                   │
+       │  • Susceptible to prompt injection & jailbreaks     │
+       │  • MUST NEVER have direct access to database socket  │
+       └──────────────────────────┬──────────────────────────┘
+                                  │ JSON-RPC 2.0 (MCP Protocol)
+                                  │ { method: "tools/call", ... }
+                                  ▼
+════════════════════════════════════════════════════════════════════════════════
+                        MCP SERVER TRUST BOUNDARY
+════════════════════════════════════════════════════════════════════════════════
+       ┌─────────────────────────────────────────────────────┐
+       │              HARDENED MCP SERVER GATEWAY             │
+       │                                                     │
+       │  ┌───────────────────────────────────────────────┐  │
+       │  │  [Stage 1] Authentication Guard (AuthN)        │  │
+       │  │  • Bearer token extraction & verification     │  │
+       │  │  • Maps token to ClientIdentity & Scopes      │  │
+       │  └───────────────────────┬───────────────────────┘  │
+       │                          │ Valid
+       │                          ▼
+       │  ┌───────────────────────────────────────────────┐  │
+       │  │  [Stage 2] Sliding-Window Rate Limiter        │  │
+       │  │  • Tracks requests per client in time window  │  │
+       │  │  • Backpressure & retry-after computation     │  │
+       │  └───────────────────────┬───────────────────────┘  │
+       │                          │ Under Limit
+       │                          ▼
+       │  ┌───────────────────────────────────────────────┐  │
+       │  │  [Stage 3] Authorization & Scopes (AuthZ)     │  │
+       │  │  • Least-privilege verification (db:read,     │  │
+       │  │    db:schema, metrics:read, admin:all)        │  │
+       │  └───────────────────────┬───────────────────────┘  │
+       │                          │ Authorized
+       │                          ▼
+       │  ┌───────────────────────────────────────────────┐  │
+       │  │  [Stage 4] Input Validation & SQL Lexical Guard│  │
+       │  │  • Zod schema & parameter boundary check      │  │
+       │  │  • SELECT-only enforcement                     │  │
+       │  │  • Stacked query rejection (;)                 │  │
+       │  │  • Comment masking rejection (--, /* */)      │  │
+       │  │  • Table whitelisting & vault isolation       │  │
+       │  │  • Tautology & blind injection detection      │  │
+       │  └───────────────────────┬───────────────────────┘  │
+       │                          │ Clean & Parameterized
+       │                          ▼
+       │  ┌───────────────────────────────────────────────┐  │
+       │  │  [Stage 5] Safe SQL Execution Engine (SQLite) │  │
+       │  │  • node:sqlite (Node 22 native DatabaseSync)  │  │
+       │  │  • Parameter binding (prepared statements)    │  │
+       │  │  • Max row count bounds (default 50)          │  │
+       │  └───────────────────────┬───────────────────────┘  │
+       │                          │
+       │                          ▼
+       │  ┌───────────────────────────────────────────────┐  │
+       │  │  [Stage 6] Cryptographic Audit Chain Logger   │  │
+       │  │  • Records ALL requests (ALLOWED & BLOCKED)   │  │
+       │  │  • SHA-256 hash chaining (tamper-evident)     │  │
+       │  │  • Latencies, row counts, client identities   │  │
+       │  └───────────────────────────────────────────────┘  │
+       └──────────────────────────┬──────────────────────────┘
+                                  │ Sanitized JSON Result
+                                  ▼
+                       ┌──────────────────────┐
+                       │  LANGGRAPH AGENT     │
+                       │  • Safety evaluator  │
+                       │  • Synthesis         │
+                       └──────────────────────┘
+
+
+================================================================================
+2. LANGGRAPH AGENT INTEGRATION TOPOLOGY (DEEP BUILD B)
+================================================================================
+
+                                 START
+                                   │
+                                   ▼
+                       ┌───────────────────────┐
+                       │      plannerNode      │
+                       │ • Inspects input      │
+                       │ • Prompt injection    │
+                       │   pre-check           │
+                       │ • Plans tool call     │
+                       └───────────┬───────────┘
+                                   │
+                         ┌─────────┴─────────┐
+                         │  [threat found?]  │
+                  ┌──────┴──────┐     ┌──────┴──────┐
+                  │     YES     │     │     NO      │
+                  └──────┬──────┘     └──────┬──────┘
+                         │                   │
+                         ▼                   ▼
+                  ┌─────────────┐   ┌───────────────────────┐
+                  │     END     │   │   mcpToolExecution    │
+                  │ (Neutralized│   │ • Calls MCP client    │
+                  │  & Aborted) │   │ • Transports callTool │
+                  └─────────────┘   │ • Captures data/error │
+                                    └───────────┬───────────┘
+                                                │
+                                                ▼
+                                    ┌───────────────────────┐
+                                    │    dataSafetyNode     │
+                                    │ • Inspects toolResult │
+                                    │ • Indirect prompt     │
+                                    │   injection filter    │
+                                    └───────────┬───────────┘
+                                                │
+                                      ┌─────────┴─────────┐
+                                      │  [indirect risk?] │
+                               ┌──────┴──────┐     ┌──────┴──────┐
+                               │     YES     │     │     NO      │
+                               └──────┬──────┘     └──────┬──────┘
+                                      │                   │
+                                      ▼                   ▼
+                               ┌─────────────┐   ┌───────────────────────┐
+                               │     END     │   │    synthesizerNode    │
+                               │ (Neutralized│   │ • Formats answer      │
+                               │  Payload)   │   │ • Graceful recovery   │
+                               └─────────────┘   │   if tool error       │
+                                                 └───────────┬───────────┘
+                                                             │
+                                                             ▼
+                                                        ┌─────────┐
+                                                        │   END   │
+                                                        └─────────┘
+
+
+================================================================================
+3. MCP CAPABILITY NEGOTIATION & MESSAGE TAXONOMY
+================================================================================
+
+Client                                                      Hardened MCP Server
+  │                                                                  │
+  ├────── JSON-RPC: initialize (client info & capabilities) ────────►│
+  │◄───── JSON-RPC: initializeResult (server info, tools, resources)─┤
+  │                                                                  │
+  ├────── JSON-RPC: notifications/initialized ──────────────────────►│
+  │                                                                  │
+  │  --- TOOL DISCOVERY & EXECUTION ---                              │
+  ├────── JSON-RPC: tools/list ─────────────────────────────────────►│
+  │◄───── JSON-RPC: tools/list Result (JSON Schema definitions) ────┤
+  │                                                                  │
+  ├────── JSON-RPC: tools/call { name: "query_database", ... } ─────►│
+  │◄───── JSON-RPC: tools/call Result / Error ──────────────────────┤
+  │                                                                  │
+  │  --- RESOURCE DISCOVERY & READ ---                               │
+  ├────── JSON-RPC: resources/list ─────────────────────────────────►│
+  │◄───── JSON-RPC: resources/list Result (system://health, etc.) ──┤
+  │                                                                  │
+  ├────── JSON-RPC: resources/read { uri: "system://health" } ──────►│
+  │◄───── JSON-RPC: resources/read Result (JSON stats payload) ─────┤
+  │                                                                  │
+  │  --- PROMPT TEMPLATE DISCOVERY & FETCH ---                       │
+  ├────── JSON-RPC: prompts/list ───────────────────────────────────►│
+  │◄───── JSON-RPC: prompts/list Result (incident_investigation) ───┤
+  ▼                                                                  ▼
+
+
+================================================================================
+4. TAMPER-EVIDENT CRYPTOGRAPHIC HASH CHAIN
+================================================================================
+
+Entry #0 [GENESIS]
+  previousHash: 0000000000000000000000000000000000000000000000000000000000000000
+  data: { id, timestamp, clientId, toolName, verdict: "ALLOWED", ... }
+  hash: SHA-256(previousHash + JSON(data)) ──┐
+                                             │
+Entry #1                                     │
+  previousHash: ─────────────────────────────┘ (points to Entry #0 hash)
+  data: { id, timestamp, clientId, toolName, verdict: "BLOCKED_INJECTION", ... }
+  hash: SHA-256(previousHash + JSON(data)) ──┐
+                                             │
+Entry #2                                     │
+  previousHash: ─────────────────────────────┘ (points to Entry #1 hash)
+  data: { id, timestamp, clientId, toolName, verdict: "BLOCKED_RATE_LIMIT", ... }
+  hash: SHA-256(previousHash + JSON(data))
+
+Any modification, deletion, or reordering of any entry breaks the hash chain,
+provably detecting tampering during automated audit verification!
+================================================================================
