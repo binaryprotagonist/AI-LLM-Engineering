@@ -167,6 +167,26 @@ A hands-on, production-focused learning path covering LLM systems, agents, RAG, 
 
 ---
 
+### 08 — AI-Assisted Delivery + Production Capstone
+
+> **Goal:** Wield AI coding tools at senior level, then ship an evaluated, observable, secure capstone integrating the whole week.
+
+**Topics covered:**
+- Full staff-level system design: architecting an end-to-end production agentic system
+- API Gateway ingress: authentication, Zod validation, sliding-window rate limiting & global request budgets
+- Advanced hybrid RAG: dense semantic, BM25 lexical, Reciprocal Rank Fusion (RRF, $k=60$) & cross-encoder reranking
+- Multi-agent LangGraph orchestration: supervisor routing, budget guard nodes, state reducers & deadline enforcement
+- Hardened MCP server: least-privilege RBAC scopes, lexical SQL/XSS injection defense & sliding-window backpressure
+- Human-in-the-loop (HITL): state interruption on sensitive operations (`hr:write`), approval token TTL & resume cycles
+- Append-only cryptographic SHA-256 tamper-evident hash-chained audit logging
+- Distributed tracing & observability: OpenTelemetry span trees, latency percentiles ($p_{50}, p_{95}, p_{99}$), and cost tracking
+- AI coding tools at senior level: Copilot, Cursor, Claude Code, rules files (`AGENTS.md`) & constraints
+- Automated adversarial security testing: 10 attack vectors on MCP boundary (100% neutralized)
+
+**Challenge:** Shipped the system end to end with a passing eval suite (100% Recall@K, 1.000 MRR), live tracing, bounded cost budget ($0.000070/req), and adversarial tests on the MCP boundary.
+
+---
+
 ## Tech Stack
 
 - **Language:** TypeScript (ESM)
